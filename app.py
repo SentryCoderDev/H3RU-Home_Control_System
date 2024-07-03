@@ -1,32 +1,30 @@
-from flask import Flask, render_template, Response, request
+from flask import Flask, render_template, Response, request, jsonify
 import cv2
-import easyocr
 import time
 import threading
-from your_motor_library import MotorController
-from your_audio_detection_library import AudioDetector
+import serial
+
 
 app = Flask(__name__)
 
 # Kameralar
-outside_garage_cam = cv2.VideoCapture(0)  # 10 metre uzakta olan kamera
-inside_garage_cam = cv2.VideoCapture(1)   # Garajın içindeki kamera
-entrance_cam = cv2.VideoCapture(2)        # Ev girişindeki kamera
+outside_garage_cam = cv2.VideoCapture(0)  
+inside_garage_cam = cv2.VideoCapture(1)   
+entrance_cam = cv2.VideoCapture(2)        
 
-# Plaka tanıma ve motor kontrolü
-target_plate = "34AEA154"
-motor = MotorController()
-audio_detector = AudioDetector()  # Kapı zil sesi algılama
+# Seri port bağlantısı (Arduino)
+ser = serial.Serial('/dev/ttyUSB0', 115200)  # Arduino's serial port
 
-def check_license_plate(frame, target_plate):
-    reader = easyocr.Reader(['en'])
-    results = reader.readtext(frame)
-    for (bbox, text, prob) in results:
-        if text == target_plate:
-            return True
-    return False
+result_message = ""
 
-def gen_frames(cam):  # video akışı için bir jeneratör fonksiyon
+# Kullanıcı şifreleri
+user_passwords = {
+    "user1": "1234",
+    "user2": "5678"
+    # Add more users
+}
+
+def gen_frames(cam):  # A generator function for streaming video
     while True:
         success, frame = cam.read()
         if not success:
@@ -40,34 +38,32 @@ def gen_frames(cam):  # video akışı için bir jeneratör fonksiyon
 def garage_control():
     while True:
         ret, frame = outside_garage_cam.read()
-        if ret and check_license_plate(frame, target_plate):
-            motor.open_garage()
-            time.sleep(2)  # Garajın açılma süresi
-            inside_detection()
-        time.sleep(1)
-
-def inside_detection():
-    while True:
-        ret, frame = inside_garage_cam.read()
         if ret:
-            # Aracın içeri girip girmediğini kontrol et
-            # Burada basit bir hareket algılama yapılabilir
-            # Daha gelişmiş algoritmalar kullanabilirsiniz
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            motion_detected = cv2.absdiff(gray, cv2.GaussianBlur(gray, (21, 21), 0)).sum() > 100000  # Basit bir hareket algılama
-            if motion_detected:
-                time.sleep(10)  # Aracın içeri girmesi için bekleme süresi
-                motor.close_garage()
-                break
+            # Motion detection and target plate recognition code will be here
+            # Send RF signal if target plate detected
+            ser.write(b'OPEN_GARAGE\n')
+        time.sleep(1)
 
 def audio_detection():
     while True:
-        if audio_detector.detect_doorbell():
-            print("Zil Sesi Algılandı!")
-            # Ev giriş kamera akışını başlat
-            # Bu durumda kullanıcının bildirim alıp kamerayı görüntülemesi sağlanabilir
-            # Bu kısımda Flask route'ları kullanarak istemci tarafına bilgi gönderebilirsiniz.
+        if detect_doorbell():
+            print("ringtone detected!")
+            # Start camera streaming at home entrance
+            # In this case, the user can be notified and view the camera
+            # In this section, you can send information to the client side using Flask routes.
         time.sleep(1)
+
+def detect_doorbell():
+    # Here will be the ringtone detection algorithm
+    return False
+
+def read_from_arduino():
+    global result_message
+    while True:
+        if ser.in_waiting > 0:
+            line = ser.readline().decode('utf-8').strip()
+            if line.startswith("RESULT:"):
+                result_message = line.split("RESULT:")[1]
 
 @app.route('/video_feed/<int:cam_id>')
 def video_feed(cam_id):
@@ -82,9 +78,25 @@ def video_feed(cam_id):
 
 @app.route('/open_door', methods=['POST'])
 def open_door():
-    # Solenoid kontrol kodu buraya gelecek
-    motor.open_door()  # Örneğin: motor.open_door()
+    ser.write(b'OPEN_DOOR\n')  # Command to send signal to Arduino
     return "Door Opened", 200
+
+@app.route('/validate_password', methods=['POST'])
+def validate_password():
+    data = request.json
+    user = data.get('user')
+    password = data.get('password')
+    
+    if user in user_passwords and user_passwords[user] == password:
+        ser.write(b'VALID_PASSWORD\n')
+        return "Password Validated", 200
+    else:
+        return "Invalid Password", 401
+
+@app.route('/result')
+def result():
+    global result_message
+    return jsonify(result=result_message)
 
 @app.route('/')
 def index():
@@ -94,4 +106,5 @@ if __name__ == '__main__':
     # Arka planda çalışan görevler
     threading.Thread(target=garage_control).start()
     threading.Thread(target=audio_detection).start()
+    threading.Thread(target=read_from_arduino).start()
     app.run(host='0.0.0.0', port=5000, debug=True)
