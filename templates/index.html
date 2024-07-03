@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H3RU Home Control Automation</title>
+    <style>
+        body {
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .camera-feed {
+            flex: 1;
+            margin: 10px;
+        }
+        .centered-button {
+            text-align: center;
+            width: 100%;
+            margin-top: 20px;
+        }
+        button {
+            font-size: 20px;
+            padding: 10px 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Home Control Automation</h1>
+    <div class="container">
+        <div class="camera-feed">
+            <h2>Outside Garage Camera</h2>
+            <img src="{{ url_for('video_feed', cam_id=0) }}">
+        </div>
+        <div class="camera-feed">
+            <h2>Inside Garage Camera</h2>
+            <img src="{{ url_for('video_feed', cam_id=1) }}">
+        </div>
+        <div class="camera-feed">
+            <h2>Entrance Camera</h2>
+            <img src="{{ url_for('video_feed', cam_id=2) }}">
+        </div>
+    </div>
+    <div class="centered-button">
+        <button onclick="openDoor()">Open Door</button>
+    </div>
+
+    <script>
+        function openDoor() {
+            fetch('/open_door', { method: 'POST' })
+                .then(response => {
+                    if(response.ok) {
+                        alert("Door opened");
+                    }
+                });
+        }
+    </script>
+</body>
+</html>
