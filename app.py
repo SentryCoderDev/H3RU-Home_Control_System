@@ -1,30 +1,30 @@
 from flask import Flask, render_template, Response, request, jsonify
 import cv2
+import pytesseract
 import time
 import threading
 import serial
 
-
 app = Flask(__name__)
 
-# Kameralar
+# All Cameras
 outside_garage_cam = cv2.VideoCapture(0)  
 inside_garage_cam = cv2.VideoCapture(1)   
 entrance_cam = cv2.VideoCapture(2)        
 
-# Seri port bağlantısı (Arduino)
 ser = serial.Serial('/dev/ttyUSB0', 115200)  # Arduino's serial port
-
 result_message = ""
 
-# Kullanıcı şifreleri
 user_passwords = {
     "user1": "1234",
     "user2": "5678"
     # Add more users
 }
 
-def gen_frames(cam):  # A generator function for streaming video
+# Pytesseract configuration
+pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'  # Path to Tesseract OCR executable
+
+def gen_frames(cam):
     while True:
         success, frame = cam.read()
         if not success:
@@ -39,9 +39,14 @@ def garage_control():
     while True:
         ret, frame = outside_garage_cam.read()
         if ret:
-            # Motion detection and target plate recognition code will be here
-            # Send RF signal if target plate detected
-            ser.write(b'OPEN_GARAGE\n')
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Perform OCR using Pytesseract
+            text = pytesseract.image_to_string(gray)
+            print("OCR Text:", text)
+            # Check if the target plate number is recognized
+            if "your_target_plate" in text:
+                ser.write(b'OPEN_GARAGE\n')
+                print("Opening garage for plate 'your_target_plate'")
         time.sleep(1)
 
 def audio_detection():
@@ -49,12 +54,10 @@ def audio_detection():
         if detect_doorbell():
             print("ringtone detected!")
             # Start camera streaming at home entrance
-            # In this case, the user can be notified and view the camera
-            # In this section, you can send information to the client side using Flask routes.
+            # Notify and view the camera as needed
         time.sleep(1)
 
 def detect_doorbell():
-    # Here will be the ringtone detection algorithm
     return False
 
 def read_from_arduino():
@@ -78,7 +81,7 @@ def video_feed(cam_id):
 
 @app.route('/open_door', methods=['POST'])
 def open_door():
-    ser.write(b'OPEN_DOOR\n')  # Command to send signal to Arduino
+    ser.write(b'OPEN_DOOR\n')
     return "Door Opened", 200
 
 @app.route('/validate_password', methods=['POST'])
@@ -103,8 +106,8 @@ def index():
     return render_template('index.html')
 
 if __name__ == '__main__':
-    # Arka planda çalışan görevler
     threading.Thread(target=garage_control).start()
     threading.Thread(target=audio_detection).start()
     threading.Thread(target=read_from_arduino).start()
     app.run(host='0.0.0.0', port=5000, debug=True)
+
