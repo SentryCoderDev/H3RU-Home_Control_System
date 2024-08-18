@@ -1,33 +1,172 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>H3RU Home Control System</title>
-    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='styles.css') }}">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #000000;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .header {
+            background-color: #fffb00be;
+            padding: 20px;
+            text-align: center;
+            color: rgb(0, 0, 0);
+            width: 100%;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 2em;
+            font-weight: 700;
+        }
+
+        .logo-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .logo-container img {
+            width: 200px;
+            height: auto;
+        }
+
+        .logo-container p {
+            margin: 10px 0 0 0;
+            font-size: 1em;
+        }
+
+        .content {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 20px;
+            width: 100%;
+        }
+
+        .camera-feed {
+            background-color: #fff;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            text-align: center;
+            width: 320px;
+        }
+
+        .camera-feed h3 {
+            margin-top: 0;
+            font-weight: 700;
+        }
+
+        .camera-box {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%;
+            /* 16:9 Aspect Ratio */
+            overflow: hidden;
+            border-radius: 8px;
+        }
+
+        .camera-box img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .centered-button {
+            text-align: center;
+            padding: 20px;
+            width: 100%;
+        }
+
+        #open-door {
+            font-size: 1.2em;
+            padding: 12px 24px;
+            background-color: #fffb00c0;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        #open-door:hover {
+            background-color: #1669c1;
+        }
+
+        #result-message {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 1em;
+            color: #555;
+        }
+    </style>
 </head>
+
 <body>
-    <h1>H3RU Home Control System</h1>
-    <div class="container">
+    <header class="header">
+        <h1>H3RU Home Control System</h1>
+    </header>
+
+    <div class="content">
+        <!-- Camera Feed Left -->
         <div class="camera-feed">
             <h3>Outside Garage Camera</h3>
-            <img src="{{ url_for('video_feed', cam_id=0) }}" alt="Outside Garage Camera" width="320" height="240">
+            <div class="camera-box">
+                <img src="{{ url_for('video_feed', cam_id=0) }}" alt="Outside Garage Camera">
+            </div>
         </div>
+
+        <!-- Logo in the Center -->
+        <div class="logo-container">
+            <img src="file:///C:/Users/emohi/Desktop/ra.jpg" alt="H3RU Logo">
+            <p>To everyone who can't finish what they started<br>- H3RU</p>
+        </div>
+
+        <!-- Camera Feed Right -->
         <div class="camera-feed">
             <h3>Inside Garage Camera</h3>
-            <img src="{{ url_for('video_feed', cam_id=1) }}" alt="Inside Garage Camera" width="320" height="240">
-        </div>
-        <div class="camera-feed">
-            <h3>Entrance Camera</h3>
-            <img src="{{ url_for('video_feed', cam_id=2) }}" alt="Entrance Camera" width="320" height="240">
+            <div class="camera-box">
+                <img src="{{ url_for('video_feed', cam_id=1) }}" alt="Inside Garage Camera">
+            </div>
         </div>
     </div>
+
+    <!-- Button Below the Logo -->
     <div class="centered-button">
         <button id="open-door">Open Door</button>
     </div>
-    <div id="result-message" style="margin-top: 20px;"></div>
+
+    <!-- Third Camera Feed Below the Button -->
+    <div class="camera-feed">
+        <h3>Entrance Camera</h3>
+        <div class="camera-box">
+            <img src="{{ url_for('video_feed', cam_id=2) }}" alt="Entrance Camera">
+        </div>
+    </div>
+
+    <div id="result-message"></div>
+
     <script>
-        document.getElementById('open-door').addEventListener('click', function() {
+        document.getElementById('open-door').addEventListener('click', function () {
             fetch('/open_door', { method: 'POST' })
                 .then(response => response.text())
                 .then(data => {
@@ -43,7 +182,8 @@
                 });
         }
 
-        setInterval(fetchResult, 1000);  // Her saniye sonuçları kontrol et
+        setInterval(fetchResult, 1000); // Check results every second
     </script>
 </body>
+
 </html>
