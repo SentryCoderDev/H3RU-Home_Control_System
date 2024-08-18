@@ -125,23 +125,17 @@
     <header class="header">
         <h1>H3RU Home Control System</h1>
     </header>
-
     <div class="content">
-        <!-- Camera Feed Left -->
         <div class="camera-feed">
             <h3>Outside Garage Camera</h3>
             <div class="camera-box">
                 <img src="{{ url_for('video_feed', cam_id=0) }}" alt="Outside Garage Camera">
             </div>
         </div>
-
-        <!-- Logo in the Center -->
         <div class="logo-container">
-            <img src="file:///C:/Users/emohi/Desktop/ra.jpg" alt="H3RU Logo">
+            <img src="file:///C:/Users/emohi/Desktop/H3RU-Home_Control_System-main/ra.jpg" alt="H3RU Logo">
             <p>To everyone who can't finish what they started<br>- H3RU</p>
         </div>
-
-        <!-- Camera Feed Right -->
         <div class="camera-feed">
             <h3>Inside Garage Camera</h3>
             <div class="camera-box">
@@ -149,41 +143,31 @@
             </div>
         </div>
     </div>
-
-    <!-- Button Below the Logo -->
     <div class="centered-button">
         <button id="open-door">Open Door</button>
     </div>
-
-    <!-- Third Camera Feed Below the Button -->
     <div class="camera-feed">
         <h3>Entrance Camera</h3>
         <div class="camera-box">
             <img src="{{ url_for('video_feed', cam_id=2) }}" alt="Entrance Camera">
         </div>
     </div>
-
     <div id="result-message"></div>
-
     <script>
+        const ws = new WebSocket("ws://localhost:8000/ws");
         document.getElementById('open-door').addEventListener('click', function () {
             fetch('/open_door', { method: 'POST' })
-                .then(response => response.text())
-                .then(data => {
-                    document.getElementById('result-message').innerText = data;
-                });
-        });
-
-        function fetchResult() {
-            fetch('/result')
                 .then(response => response.json())
                 .then(data => {
-                    document.getElementById('result-message').innerText = data.result;
+                    document.getElementById('result-message').innerText = data.message;
                 });
-        }
-
-        setInterval(fetchResult, 1000); // Check results every second
+        });
+        ws.onmessage = function (event) {
+            document.getElementById('result-message').innerText = event.data;
+        };
+        setInterval(() => ws.send("result"), 1000);
     </script>
 </body>
 
 </html>
+
