@@ -97,7 +97,7 @@
             width: 100%;
         }
 
-        #open-door {
+        #open-door, #open-garage {
             font-size: 1.2em;
             padding: 12px 24px;
             background-color: #fffb00c0;
@@ -106,9 +106,10 @@
             border-radius: 4px;
             cursor: pointer;
             transition: background-color 0.3s ease;
+            margin-bottom: 10px;
         }
 
-        #open-door:hover {
+        #open-door:hover, #open-garage:hover {
             background-color: #1669c1;
         }
 
@@ -118,6 +119,25 @@
             font-size: 1em;
             color: #555;
         }
+        .chat-box {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            width: 300px;
+            max-height: 200px;
+            overflow-y: auto;
+            background-color: #333;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .chat-box p {
+            margin: 0;
+            padding: 5px 0;
+        }
+        
     </style>
 </head>
 
@@ -133,7 +153,7 @@
             </div>
         </div>
         <div class="logo-container">
-            <img src="file:///C:/Users/emohi/Desktop/H3RU-Home_Control_System-main/ra.jpg" alt="H3RU Logo">
+            <img src="{{ url_for('static', path='ra.jpg') }}" alt="H3RU Logo">
             <p>To everyone who can't finish what they started<br>- H3RU</p>
         </div>
         <div class="camera-feed">
@@ -143,8 +163,10 @@
             </div>
         </div>
     </div>
+    <div id="chat-box" class="chat-box"></div>
     <div class="centered-button">
         <button id="open-door">Open Door</button>
+        <button id="open-garage">Open Garage</button>
     </div>
     <div class="camera-feed">
         <h3>Entrance Camera</h3>
@@ -155,6 +177,7 @@
     <div id="result-message"></div>
     <script>
         const ws = new WebSocket("ws://localhost:8000/ws");
+
         document.getElementById('open-door').addEventListener('click', function () {
             fetch('/open_door', { method: 'POST' })
                 .then(response => response.json())
@@ -162,12 +185,23 @@
                     document.getElementById('result-message').innerText = data.message;
                 });
         });
+
+        document.getElementById('open-garage').addEventListener('click', function () {
+            fetch('/open_garage', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('result-message').innerText = data.message;
+                });
+        });
+
         ws.onmessage = function (event) {
-            document.getElementById('result-message').innerText = event.data;
+            const chatBox = document.getElementById('chat-box');
+            chatBox.innerHTML += `<p>${event.data}</p>`;
+            chatBox.scrollTop = chatBox.scrollHeight;  // En yeni mesajın görünebilmesi için
         };
+
         setInterval(() => ws.send("result"), 1000);
     </script>
 </body>
 
 </html>
-

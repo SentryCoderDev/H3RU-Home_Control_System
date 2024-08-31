@@ -1,104 +1,96 @@
-#include <RCSwitch.h>
-#include <MFRC522.h>
-#include <Keypad.h>
 #include <SPI.h>
-#include <LiquidCrystal.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Servo.h>
 
-// RFID
-#define SS_PIN 6
-#define RST_PIN 5
-#define solenoidPin 4
-MFRC522 rfid(SS_PIN, RST_PIN);
+#define RelayPin 2
 
-const int rs = 12; // Digital Pin 12
-const int en = 11; // Digital Pin 11
-const int d6 = 10; // Digital Pin 10
-const int d4 = 9; // Digital Pin 9
-const int d5 = 8; // Digital Pin 8
-const int d7 = 7; // Digital Pin 7
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+Servo garageServo;
 
-// Keypad
-const byte ROWS = 4; // Four rows
-const byte COLS = 3; // Three columns
-char keys[ROWS][COLS] = {
-    {'1', '2', '3'},
-    {'4', '5', '6'},
-    {'7', '8', '9'},
-    {'*', '0', '#'}
-};
-byte rowPins[ROWS] = {9, 8, 7, 6}; // Connect to the row pinouts of the keypad
-byte colPins[COLS] = {5, 4, 3}; // Connect to the column pinouts of the keypad
-Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+const int buttonPins[] = {13, 12, 11, 10, 9, 8, 7, 6, 5};
+const int buttonNumbers[] = {7, 4, 1, 8, 5, 2, 9, 6, 3};
 
-// Users RFID PASSWORD NAME
-String validCards[] = {"CARD1_UID", "CARD2_UID"};
 String userPasswords[] = {"1234", "5678"};
-String userNames[] = {"X", "Y"};
-
-// LCD
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+String userNames[] = {"User1", "User2"};
 
 String enteredPassword = "";
+String lastResult = "";  // To store the face recognition result
 
 void setup() {
     Serial.begin(115200);
-    SPI.begin();
-    rfid.PCD_Init();
-    lcd.begin(16, 2);  // initialize the lcd for 16 chars 2 lines, turn on backlight
+    Serial.println("Serial connection started. Type 'OPEN_DOOR' to test.");
+
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("    HVZ House   ");
+    lcd.setCursor(0, 1);
+    lcd.print("  Hosgeldiniz!  ");
+    
+    pinMode(RelayPin, OUTPUT);
+    digitalWrite(RelayPin, HIGH);
+
+    for (int i = 0; i < 9; i++) {
+        pinMode(buttonPins[i], INPUT_PULLUP);
+    }
 }
 
 void loop() {
-    // process incoming commands from serial port
     if (Serial.available() > 0) {
         String command = Serial.readStringUntil('\n');
+        command.trim();
         if (command == "OPEN_DOOR") {
             openDoor();
-        }
-    }
-
-    // RFID Read
-    if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-        String cardUID = "";
-        for (byte i = 0; i < rfid.uid.size; i++) {
-            cardUID += String(rfid.uid.uidByte[i], HEX);
-        }
-        if (isValidCard(cardUID)) {
-            String user = getUserByCard(cardUID);
+        } else if (command == "VALID_PASSWORD") {
             openDoor();
-            displayGreeting(user, cardUID);
-            Serial.print("Hello ");
-            Serial.println(user);
-            sendResultToJetson("Hello " + user);
+        } else if (command == "OPEN_GARAGE") {
+            openGarage();           
+        } else if (command == "FACE_RECOGNITION") {
+            Serial.println("Facial Recognition Started...");        
+        } else if (command.startsWith("IDENTIFIED:")) {
+            String name = command.substring(11);  // Remove the "IDENTIFIED:" part
+            displayFaceRecognitionGreeting(name);
         }
-        rfid.PICC_HaltA();
     }
 
-    // Keypad Read
-    char key = keypad.getKey();
-    if (key) {
-        if (key == '#') {
-            if (isValidPassword(enteredPassword)) {
-                String user = getUserByPassword(enteredPassword);
-                openDoor();
-                displayGreeting(user, "PASSWORD");
-                Serial.print("Hello ");
-                Serial.println(user);
-                sendResultToJetson("Hello " + user);
-            }
-            enteredPassword = "";
-        } else {
+    for (int i = 0; i < 9; i++) {
+        if (digitalRead(buttonPins[i]) == LOW) {
+            String key = String(buttonNumbers[i]);
             enteredPassword += key;
-        }
-    }
-}
+            Serial.print("Entered: ");
+            Serial.println(enteredPassword);
 
-bool isValidCard(String uid) {
-    for (String validCard : validCards) {
-        if (validCard == uid) {
-            return true;
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("    HVZ House   ");
+            lcd.setCursor((16 - enteredPassword.length()) / 2, 1);
+            lcd.print(enteredPassword);
+
+            if (enteredPassword.length() >= 4) {
+                if (isValidPassword(enteredPassword)) {
+                    String user = getUserByPassword(enteredPassword);
+                    delay(1000);
+                    displayGreeting(user, "Sifre");
+                    Serial.print("Hello ");
+                    Serial.println(user);
+                    sendResultToJetson("Hello " + user);
+                    openDoor();
+                } else {
+                    Serial.println("Invalid Password!");
+                    lcd.clear();
+                    lcd.setCursor(0, 0);
+                    lcd.print("  Hatali Sifre  ");
+                    delay(2000);
+                    lcd.clear();
+                    lcd.setCursor(0, 0);
+                    lcd.print("    HVZ House   ");
+                }
+                enteredPassword = "";
+            }
+            delay(200);
         }
     }
-    return false;
 }
 
 bool isValidPassword(String password) {
@@ -110,17 +102,8 @@ bool isValidPassword(String password) {
     return false;
 }
 
-String getUserByCard(String uid) {
-    for (int i = 0; i < sizeof(validCards) / sizeof(validCards[0]); i++) {
-        if (validCards[i] == uid) {
-            return userNames[i];
-        }
-    }
-    return "Unknown";
-}
-
 String getUserByPassword(String password) {
-    for (int i = 0; i < sizeof(userPasswords) / sizeof(userPasswords[0]); i++) {
+    for (int i = 0; i < (sizeof(userPasswords) / sizeof(userPasswords[0])); i++) {
         if (userPasswords[i] == password) {
             return userNames[i];
         }
@@ -129,9 +112,24 @@ String getUserByPassword(String password) {
 }
 
 void openDoor() {
-    digitalWrite(solenoidPin, HIGH);
-    delay(1000); // 1 second delay
-    digitalWrite(solenoidPin, LOW);
+    Serial.println("openDoor() called");
+    digitalWrite(RelayPin, LOW);
+    delay(5000);
+    digitalWrite(RelayPin, HIGH);
+    Serial.println("DOOR OPENED");
+}
+
+void openGarage() {
+    Serial.println("openGarage() called");
+    garageServo.attach(4);  //Connect (activate) the servo
+    garageServo.write(180);  
+    Serial.println("GARAGE OPENED");
+    delay(1000);             
+    garageServo.write(30);   
+    Serial.println("Servo Up");
+    delay(500);              
+    garageServo.detach();    // Disable servo
+
 }
 
 void sendResultToJetson(String message) {
@@ -141,9 +139,37 @@ void sendResultToJetson(String message) {
 
 void displayGreeting(String user, String identifier) {
     lcd.clear();
-    lcd.setCursor(0, 0);
+    lcd.setCursor((16 - (8 + user.length())) / 2, 0); // 'Merhaba' is 8 characters long.
     lcd.print("Merhaba ");
     lcd.print(user);
+    
+    String fullText = "Giris: " + identifier;
+    lcd.setCursor((16 - fullText.length()) / 2, 1);
+    lcd.print(fullText);
+
+    delay(2000);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("    HVZ House   ");
     lcd.setCursor(0, 1);
-    lcd.print(identifier);
+    lcd.print("  Hosgeldiniz!  ");
+}
+
+void displayFaceRecognitionGreeting(String name) {
+    lcd.clear();
+    lcd.setCursor((16 - (8 + name.length())) / 2, 0); // 'Merhaba' is 8 characters long.
+    lcd.print("Merhaba ");
+    lcd.print(name);
+
+    lcd.setCursor((16 - 22) / 2, 0); //to center the phrase "the homeowner has been informed"
+    lcd.print("H3RUM0'e bilgi");
+    lcd.setCursor((16 - 22) / 2, 1); // Ekranda ikinci satır
+    lcd.print("verildi");
+    
+    delay(2000);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("    HVZ House   ");
+    lcd.setCursor(0, 1);
+    lcd.print("  Hosgeldiniz!  ");
 }
