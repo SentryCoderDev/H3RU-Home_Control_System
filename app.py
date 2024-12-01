@@ -148,6 +148,12 @@ async def open_garage():
         return {"message": "Garaj kapısı açılıyor."}
     raise HTTPException(status_code=500, detail="Arduino bağlantısı yok")
 
+@app.post("/doorbell")
+async def doorbell():
+    await broadcast_message("doorbell")
+    await broadcast_random_sound()
+    return {"message": "Doorbell triggered"}
+
 @app.get("/", response_class=HTMLResponse)
 async def get(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
