@@ -14,6 +14,7 @@ import glob
 from typing import List
 import random
 import base64
+import json
 
 # Sabit Değişkenler
 CAMERAS = []
@@ -148,12 +149,6 @@ async def open_garage():
         return {"message": "Garaj kapısı açılıyor."}
     raise HTTPException(status_code=500, detail="Arduino bağlantısı yok")
 
-@app.post("/doorbell")
-async def doorbell():
-    await broadcast_message("doorbell")
-    await broadcast_random_sound()
-    return {"message": "Doorbell triggered"}
-
 @app.get("/", response_class=HTMLResponse)
 async def get(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -183,8 +178,38 @@ async def websocket_endpoint(websocket: WebSocket):
     print(f"Client connected: {websocket.client}")
     try:
         while True:
-            # Keep the connection alive by waiting for messages (even if not used)
-            await websocket.receive_text()
+            message = await websocket.receive_text()
+            data = json.loads(message)
+            mode = data.get('mode')
+
+            if mode == 1:
+                # Mode 1: Trigger doorbell
+                await broadcast_message("doorbell")
+                await broadcast_random_sound()
+            elif mode == 2:
+                # Mode 2: Play a specific sound
+                sound_file = data.get('sound_file')
+                if sound_file:
+                    sound_url = f"/static/sounds/{sound_file}"
+                    await broadcast_message(sound_url)
+            elif mode == 3:
+                # Mode 3: Open door
+                if SER:
+                    SER.write(b'OPEN_DOOR\n')
+                    await websocket.send_text("Door is opening.")
+                else:
+                    await websocket.send_text("Arduino connection unavailable.")
+            elif mode == 4:
+                # Mode 4: Open garage
+                if SER:
+                    SER.write(b'OPEN_GARAGE\n')
+                    await websocket.send_text("Garage is opening.")
+                else:
+                    await websocket.send_text("Arduino connection unavailable.")
+            # Add more modes as needed
+            else:
+                # Unknown mode or keep-alive message
+                pass
     except WebSocketDisconnect:
         active_connections.remove(websocket)
         print(f"Client disconnected: {websocket.client}")
