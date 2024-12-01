@@ -246,19 +246,11 @@
         const ws = new WebSocket("wss://192.168.5.5:8001/ws");  // 'wss://' kullanın
     
         document.getElementById('open-door').addEventListener('click', function () {
-            fetch('/open_door', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('result-message').innerText = data.message;
-                });
+            ws.send(JSON.stringify({ mode: 3 }));
         });
     
         document.getElementById('open-garage').addEventListener('click', function () {
-            fetch('/open_garage', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('result-message').innerText = data.message;
-                });
+            ws.send(JSON.stringify({ mode: 4 }));
         });
     
         ws.onmessage = function(event) {
@@ -381,7 +373,7 @@
 
         // Doorbell butonu için event listener eklendi
         document.getElementById('doorbell').addEventListener('click', function () {
-            ws.send("doorbell");  // WebSocket üzerinden 'doorbell' mesajı gönder
+            ws.send(JSON.stringify({ mode: 1 }));
         });
 
         // getUserMedia desteğini kontrol edin
@@ -392,4 +384,4 @@
         }
     </script>
 </body>
-</html>  
+</html>
