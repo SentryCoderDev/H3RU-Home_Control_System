@@ -125,28 +125,24 @@ void loop() {
         lastButtonPressTime = currentMillis;  // Ekranın kapanma süresini sıfırla
     }
 
-     // Kapı zili butonuna basıldığında
-if (digitalRead(DoorbellButtonPin) == LOW && !isButtonPressed) {
-    isButtonPressed = true;  // Tekrarlamayı önlemek için bayrak kullanılır
-    lastButtonPressTime = currentMillis;
-
-    if (!isScreenOn) {
-        wakeUpScreen();
+    // Kapı zili butonuna basıldığında
+    if (digitalRead(DoorbellButtonPin) == LOW && !isButtonPressed) {
+        isButtonPressed = true;
+        lastButtonPressTime = currentMillis;
+        if (!isScreenOn) {
+            wakeUpScreen();
+        }
+        Serial.println("doorbell");
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("  Kapi Zili!   ");
+        delay(2000);
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("    HVZ House   ");
+    } else if (digitalRead(DoorbellButtonPin) == HIGH && isButtonPressed) {
+        isButtonPressed = false;
     }
-
-    Serial.println("doorbell");
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("  Kapi Zili!   ");
-    delay(2000);
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("    HVZ House   ");
-} else if (digitalRead(DoorbellButtonPin) == HIGH && isButtonPressed) {
-    isButtonPressed = false;  // Düğme bırakıldığında bayrağı sıfırla
-}
-
-
 
     // Seri port üzerinden komut kontrolü
     if (Serial.available() > 0) {
