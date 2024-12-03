@@ -1,83 +1,123 @@
-### Project name
+### Project Name
 
 **H3RU Home Control System**
 
-### Explanation
+### Description
 
-This project is a system developed to provide security and automation at home using NVIDIA Jetson Nano and Arduino. The system works integrated with various cameras and a solenoid lock mechanism and provides control of the garage and entrance door. Users can open the door with their RFID card or keypad and specific messages are displayed for each user.
+This project is a system developed to provide security and automation at home using NVIDIA Jetson Nano and Arduino. The system integrates various cameras and provides control of the garage and entrance door through a web interface. Users can open the door via the web, receive doorbell notifications, and engage in voice communication.
 
 ### Features
 
-- **3 Camera Support**:
- - Camera that detects motion and recognizes license plates outside the garage (10 meters away).
- - Camera detecting vehicle entry inside the garage.
- - Camera at the entrance door that detects ringtones and provides video streaming.
-- **RFID and Keypad Login**: Users can log in with their RFID cards or password.
-- **Personal Messages**: Personal greeting messages for each user.
-- **Control via Internet**: Possibility of control over the internet by connecting to Jetson Nano via Ethernet cable.
-- **Displaying Results**: Results from Arduino are displayed in the web interface via Jetson Nano.
+- **Web Control Interface**:
+  - Control garage and entrance door through a web dashboard.
+  - Real-time camera feeds accessible via the web.
+  
+- **Doorbell Integration**:
+  - Receive doorbell notifications on the web interface.
+  - Play custom doorbell sounds when triggered.
 
-### Required Hardware
+- **Voice Communication**:
+  - Two-way voice communication through the web interface.
+  
+- **3 Camera Support**:
+  - Camera monitoring the garage exterior.
+  - Camera monitoring the garage interior.
+  - Camera monitoring the entrance.
+
+- **Personalized Messages**: Displays personalized greeting messages for each user on the LCD screen.
+
+### Hardware Requirements
 
 - NVIDIA Jetson Nano
 - Arduino (UNO or Mega)
-- MFRC522 RFID Reader
-- RF transreceiver
-- 4x3 Keypad 
-- RCSwitch library (RF control for garage door)
+- 4x3 Keypad (I created a button circuit that includes a common GND connection line that I created myself.)
 - 3 USB Cameras
-- Ethernet Cable
-- Solenoid lock
-- 16x2 screen
+- Ethernet Cable or Wi-Fi Module
+- 16x2 LCD Screen
+- Doorbell Button
+- Speaker or Audio Output Device
 
-### Required Software
+### Software Requirements
 
--Python 3
-- Flask (web framework)
+- Python 3
+- FastAPI (web framework)
+- Uvicorn (ASGI server)
 - OpenCV (for image processing)
+- PySerial (for serial communication)
+- Jinja2 (templating engine)
 - Arduino IDE
 
-### Setup
+### Setup Instructions
 
-1. **Jetson Nano**:
- - Install Jetson Nano and install necessary software.
- - Clone project files.
- - Run the Flask application.
+1. **Clone the Repository**
 
-2. **Arduino**:
- - Install Arduino and install the necessary libraries.
- - Upload the Arduino code.
+   ```bash
+   git clone https://github.com/SentryCoderDev/H3RU-Home_Control_System.git
+   cd H3RU-Home_Control_System
+   ```
 
-### Use
+2. **Install Python Dependencies**
 
-1. **Launch Flask Application**:
- ```bash
- python app.py
- ```
+   Install the required Python packages using the `requirements.txt` file:
 
-2. **Access the Web Interface**:
- Go to `http://<JetsonNano_IP>:5000` from your browser.
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. **Watch Footage**:
- You can view images from three cameras in the web interface.
+3. **Generate a Self-Signed SSL Certificate**
 
-4. **Open the Door**:
- Scan your RFID card or enter your password with Keypad.
+   The application uses secure WebSockets and requires SSL certificates. Generate a self-signed SSL certificate:
 
-5. **View Result Messages**:
- You can see the login process results in the web interface.
+   ```bash
+   openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout key.pem -out cert.pem
+   ```
+
+   Follow the prompts to enter the required information.
+
+4. **Set Up Arduino**
+
+   - Install the Arduino IDE.
+   - Connect the Arduino to your computer.
+   - Open the Arduino sketch at `/arduino/arduino_code/arduino_code.ino`.
+   - Upload the code to your Arduino board.
+   - Ensure all hardware components are properly connected.
+
+5. **Run the Application**
+
+   Start the FastAPI application using Uvicorn with SSL:
+
+   ```bash
+   uvicorn app:app --host 0.0.0.0 --port 8001 --ssl-certfile=cert.pem --ssl-keyfile=key.pem
+   ```
+
+6. **Access the Web Interface**
+
+   Open your web browser and navigate to:
+
+   ```
+   https://<JetsonNano_IP>:8001/
+   ```
+
+   Replace `<JetsonNano_IP>` with the IP address of your Jetson Nano.
+
+   **Note**: Since we're using a self-signed certificate, your browser may warn you about an insecure connection. You can proceed by accepting the risk and continuing to the site.
 
 ### Directory Structure
 
 ```
-HomeControlSystem/
+H3RU-Home_Control_System/
 ├── app.py
+├── daemon.py
 ├── templates/
-│ └── index.html
-├──static/
-│ └── styles.css
-└── arduino/
- └── arduino_code.ino
+│   └── index.html
+├── static/
+│   ├── styles.css
+│   ├── sounds/
+├── arduino/
+│   └── arduino_code/
+│       └── arduino_code.ino
+├── requirements.txt
+└── README.md
 ```
 
 ### Contributing
