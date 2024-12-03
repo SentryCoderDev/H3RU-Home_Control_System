@@ -278,7 +278,8 @@
             }
         };
     
-        setInterval(() => ws.send("result"), 1000);
+        // Update to send valid JSON messages for keep-alive
+        setInterval(() => ws.send(JSON.stringify({ action: "keepalive" })), 1000);
     
         window.addEventListener('scroll', function () {
             const header = document.querySelector('.header');
