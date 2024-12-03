@@ -1,15 +1,14 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#include <Servo.h>
+
 
 #define RelayPin 2
-#define ServoPowerRelayPin 3  // Servo'ya güç verecek rolenin bağlı olduğu pin
 #define DoorbellButtonPin 4  // Kapı zili butonunun bağlı olduğu pin
 #define SLEEP_TIMEOUT 10000  // Ekranın kapanma süresi (milisaniye)
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-Servo garageServo;
+
 
 const int buttonPins[] = {13, 12, 11, 10, 9, 8, 7, 6, 5};
 const int buttonNumbers[] = {7, 4, 1, 8, 5, 2, 9, 6, 3};
@@ -20,7 +19,9 @@ String userNames[] = {"Mehmet", "Emir", "Nebihe", "Edhem", "Konuk", "Sülo"};
 String enteredPassword = "";
 unsigned long lastButtonPressTime = 0;  // Son tuş basım zamanını takip eder
 bool isScreenOn = true;  // Ekranın açık olup olmadığını takip eder
-bool isButtonPressed = false;  // Tuşun basılı olup olmadığını takip eder
+
+// Add a variable to store the last state of the doorbell button
+int lastDoorbellButtonState = HIGH;
 
 // Fonksiyon bildirimi (function declarations)
 bool isValidPassword(String password);
@@ -42,10 +43,9 @@ void setup() {
     lcd.print("  Hosgeldiniz!  ");
     
     pinMode(RelayPin, OUTPUT);
-    pinMode(DoorbellButtonPin, INPUT_PULLUP);
-    pinMode(ServoPowerRelayPin, OUTPUT);  // Servo'ya güç verecek role
+    pinMode(DoorbellButtonPin, INPUT_PULLUP); 
     digitalWrite(RelayPin, HIGH);
-    digitalWrite(ServoPowerRelayPin, HIGH);  // Servo'ya güç kesik
+    
 
     for (int i = 0; i < 9; i++) {
         pinMode(buttonPins[i], INPUT_PULLUP);
@@ -126,22 +126,26 @@ void loop() {
     }
 
     // Kapı zili butonuna basıldığında
-    if (digitalRead(DoorbellButtonPin) == LOW && !isButtonPressed) {
-        isButtonPressed = true;
-        lastButtonPressTime = currentMillis;
-        if (!isScreenOn) {
-            wakeUpScreen();
+    int doorbellButtonState = digitalRead(DoorbellButtonPin);
+
+    if (doorbellButtonState != lastDoorbellButtonState) {
+        if (doorbellButtonState == LOW) {
+            // Button just pressed
+            lastButtonPressTime = currentMillis;
+            if (!isScreenOn) {
+                wakeUpScreen();
+            }
+            Serial.println("doorbell");
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("  Kapi Zili!   ");
+            delay(2000);
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("    HVZ House   ");
         }
-        Serial.println("doorbell");
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("  Kapi Zili!   ");
-        delay(2000);
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("    HVZ House   ");
-    } else if (digitalRead(DoorbellButtonPin) == HIGH && isButtonPressed) {
-        isButtonPressed = false;
+        // Save the current state for next time
+        lastDoorbellButtonState = doorbellButtonState;
     }
 
     // Seri port üzerinden komut kontrolü
@@ -193,7 +197,7 @@ void openGarage() {
     Serial.println("openGarage() tetiklendi");
     
     // roleyi aktif edip servo motoruna güç ver
-    digitalWrite(ServoPowerRelayPin, LOW);
+
     delay(1000);  // Güç vermek için kısa bir gecikme
     lcd.clear();
     lcd.setCursor(0, 0);
