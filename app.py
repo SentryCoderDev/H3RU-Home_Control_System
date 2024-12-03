@@ -5,6 +5,7 @@ from fastapi import FastAPI, WebSocket, Request, HTTPException, WebSocketDisconn
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 from pydantic import BaseModel
 import cv2
 import threading
@@ -24,8 +25,19 @@ CONNECTED_CLIENTS = set()
 # Kilit Mekanizması
 lock = asyncio.Lock()
 
-# FastAPI Uygulaması
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    asyncio.create_task(read_from_arduino())
+    start_cameras()
+    # Remove the continuous broadcast task
+    # asyncio.create_task(broadcast_sounds())
+    yield
+    # Shutdown code (if any)
+
+# Create FastAPI app with lifespan
+app = FastAPI(lifespan=lifespan)
+
 templates = Jinja2Templates(directory="/home/jetson/Desktop/H3RU/templates")
 app.mount("/static", StaticFiles(directory="/home/jetson/Desktop/H3RU/static"), name="static")
 
@@ -75,7 +87,8 @@ async def read_from_arduino():
                     await broadcast_message(f"Jetson: {RESULT_MESSAGE}")
                 if line == "doorbell":
                     await broadcast_message("doorbell")  # Trigger the doorbell sound
-                    await broadcast_random_sound()  # Broadcast a random sound
+                    # Remove the random sound broadcast
+                    # await broadcast_random_sound()
             except Exception as e:
                 logging.error(f"Arduino okuma hatası: {e}")
                 print(f"Arduino okuma hatası: {e}")  # Print error to FastAPI terminal
@@ -179,13 +192,16 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             message = await websocket.receive_text()
+            if not message.strip():
+                continue
             data = json.loads(message)
             mode = data.get('mode')
 
             if mode == 1:
                 # Mode 1: Trigger doorbell
                 await broadcast_message("doorbell")
-                await broadcast_random_sound()
+                # Removed broadcasting random sound
+                # await broadcast_random_sound()
             elif mode == 2:
                 # Mode 2: Play a specific sound
                 sound_file = data.get('sound_file')
@@ -210,6 +226,9 @@ async def websocket_endpoint(websocket: WebSocket):
             else:
                 # Unknown mode or keep-alive message
                 pass
+    except ValueError:
+        print("Invalid JSON message received.")
+        await websocket.send_text("Invalid message format.")
     except WebSocketDisconnect:
         active_connections.remove(websocket)
         print(f"Client disconnected: {websocket.client}")
@@ -228,44 +247,18 @@ async def voice_websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         voice_connections.remove(websocket)
 
-async def broadcast_sounds():
-    while True:
-        sound_files = [f for f in os.listdir(SOUNDS_DIR) if f.endswith(('.wav', '.mp3'))]
-        if sound_files and active_connections:
-            sound_file = random.choice(sound_files)
-            sound_url = f"/static/sounds/{sound_file}"
-            print(f"Broadcasting sound: {sound_url}")
-            # Create a list of connections to remove in case of failure
-            disconnected = []
-            for connection in active_connections:
-                try:
-                    await connection.send_text(sound_url)
-                except WebSocketDisconnect:
-                    disconnected.append(connection)
-            # Remove disconnected connections
-            for connection in disconnected:
-                active_connections.remove(connection)
-                print(f"Client disconnected during broadcast: {connection.client}")
-        await asyncio.sleep(5)
-
-@app.on_event("startup")
-async def startup_event():
-    # Arka plan görevlerini burada başlatın
-    asyncio.create_task(broadcast_sounds())
-    asyncio.create_task(read_from_arduino())  # Arduino okumasını başlat
-    start_cameras()  # Kameraları başlat
-        
 # Ana Başlatıcı fonksiyonunu sadeleştirin
 def main():
     loop = asyncio.get_event_loop()
     loop.create_task(read_from_arduino())
 if __name__ == "__main__":
     import uvicorn
-    main()
     uvicorn.run(
-        app,
+        "app:app",
         host="0.0.0.0",
         port=8001,
-        ssl_certfile="cert.pem",  # SSL sertifika dosyanızın yolu
-        ssl_keyfile="key.pem"      # SSL anahtar dosyanızın yolu
+        ssl_certfile="cert.pem",
+        ssl_keyfile="key.pem",
+        ws='auto',
+        http='auto'
     )
