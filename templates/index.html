@@ -10,8 +10,10 @@
 
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #000000;
-            color: #333;
+            background: linear-gradient(120deg, #000000, #333333, #000000);
+            background-size: 200% 200%;
+            animation: backgroundAnimation 10s ease infinite;
+            color: #fff;
             margin: 0;
             padding: 0;
             display: flex;
@@ -19,6 +21,15 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            overflow-x: hidden; /* Buraya eklendi */
+        }
+
+        @keyframes backgroundAnimation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
 
         .header {
@@ -27,12 +38,22 @@
             text-align: center;
             color: rgb(0, 0, 0);
             width: 100%;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            transition: background-color 0.3s ease;
+        }
+
+        .header.scrolled {
+            background-color: #e6e600;
         }
 
         h1 {
             margin: 0;
-            font-size: 2em;
+            font-size: 2.5em;
             font-weight: 700;
+            transition: font-size 0.3s ease;
         }
 
         .logo-container {
@@ -43,11 +64,18 @@
         .logo-container img {
             width: 200px;
             height: auto;
+            transition: transform 0.3s ease;
+        }
+
+        .logo-container img:hover {
+            transform: scale(1.1);
+            filter: brightness(1.3);
         }
 
         .logo-container p {
             margin: 10px 0 0 0;
             font-size: 1em;
+            color: #fff;
         }
 
         .content {
@@ -57,29 +85,42 @@
             flex-wrap: wrap;
             gap: 20px;
             width: 100%;
+            max-width: 1200px;
+            padding: 0 20px;
+            box-sizing: border-box;
         }
 
         .camera-feed {
             background-color: #fff;
             padding: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
             border-radius: 8px;
             text-align: center;
             width: 320px;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .camera-feed:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+            background-color: #fffb00be;
         }
 
         .camera-feed h3 {
             margin-top: 0;
             font-weight: 700;
+            color: #333;
+            transition: color 0.3s ease;
         }
 
         .camera-box {
             position: relative;
             width: 100%;
             padding-top: 56.25%;
-            /* 16:9 Aspect Ratio */
             overflow: hidden;
             border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            background-color: #000;
         }
 
         .camera-box img {
@@ -89,6 +130,12 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
+            transition: opacity 0.3s ease;
+        }
+
+        .camera-box img:hover {
+            opacity: 0.8;
+            filter: brightness(0.8);
         }
 
         .centered-button {
@@ -105,12 +152,14 @@
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            transition: background-color 0.3s ease;
+            transition: background-color 0.3s ease, transform 0.3s ease;
             margin-bottom: 10px;
         }
 
         #open-door:hover, #open-garage:hover {
-            background-color: #1669c1;
+            background-color: #fffb00be;
+            transform: scale(1.05);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
         }
 
         #result-message {
@@ -119,6 +168,7 @@
             font-size: 1em;
             color: #555;
         }
+
         .chat-box {
             position: fixed;
             bottom: 10px;
@@ -131,14 +181,22 @@
             padding: 10px;
             border-radius: 8px;
             font-size: 14px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            transition: box-shadow 0.3s ease, background-color 0.3s ease;
+        }
+
+        .chat-box:hover {
+            background-color: #fffb00be;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
         }
 
         .chat-box p {
             margin: 0;
             padding: 5px 0;
         }
-        
     </style>
+    <!-- Favicon eklemek için head kısmına aşağıdaki satırı ekleyin -->
+    <link rel="icon" href="{{ url_for('static', path='favicon.ico') }}" type="image/x-icon">
 </head>
 
 <body>
@@ -165,8 +223,11 @@
     </div>
     <div id="chat-box" class="chat-box"></div>
     <div class="centered-button">
+        <button id="start-voice">Start Voice Communication</button>
         <button id="open-door">Open Door</button>
         <button id="open-garage">Open Garage</button>
+        <!-- Yeni Doorbell butonu eklendi -->
+        <button id="doorbell">Doorbell</button>
     </div>
     <div class="camera-feed">
         <h3>Entrance Camera</h3>
@@ -175,33 +236,153 @@
         </div>
     </div>
     <div id="result-message"></div>
+
+    <!-- Hidden audio player to play sounds -->
+    <audio id="audio-player"></audio>
+
     <script>
-        const ws = new WebSocket("ws://localhost:8000/ws");
-
+        const chatbox = document.getElementById('chat-box');  // ID'yi düzelt
+        // WebSocket URL'sini sunucunuzun IP adresi ve portuyla güncelleyin
+        const ws = new WebSocket("wss://192.168.5.5:8001/ws");  // 'wss://' kullanın
+    
         document.getElementById('open-door').addEventListener('click', function () {
-            fetch('/open_door', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('result-message').innerText = data.message;
-                });
+            ws.send(JSON.stringify({ mode: 3 }));
         });
-
+    
         document.getElementById('open-garage').addEventListener('click', function () {
-            fetch('/open_garage', { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('result-message').innerText = data.message;
-                });
+            ws.send(JSON.stringify({ mode: 4 }));
         });
+    
+        ws.onmessage = function(event) {
+            var newMessage = document.createElement("p");
+            newMessage.textContent = event.data;
+            chatbox.appendChild(newMessage);
+            chatbox.scrollTop = chatbox.scrollHeight;  // Otomatik kaydırma
+    
+            // "doorbell" mesajı geldiğinde ses çal
+            if (event.data === "doorbell") {
+                console.log("Doorbell mesajı alındı");  // Debug için log ekledik
+                const audioPlayer = document.getElementById('audio-player');
+                audioPlayer.src = '/static/sounds/doorbell.mp3';  // Path to the doorbell sound
+                audioPlayer.play()
+                    .catch(error => {
+                        console.error("Audio oynatılamadı:", error);
+                    });
+            } else if (event.data.startsWith('/static/sounds/')) {
+                const audioPlayer = document.getElementById('audio-player');
+                audioPlayer.src = event.data;
+                audioPlayer.play()
+                    .catch(error => {
+                        console.error("Audio oynatılamadı:", error);
+                    });
+            }
+        };
+    
+        // Update to send valid JSON messages for keep-alive
+        setInterval(() => ws.send(JSON.stringify({ action: "keepalive" })), 1000);
+    
+        window.addEventListener('scroll', function () {
+            const header = document.querySelector('.header');
+            if (window.scrollY > 50) {
+                header.classList.add('scrolled');
+            } else {
+                header.classList.remove('scrolled');
+            }
+        });
+    
+        document.addEventListener('mousemove', function (e) {
+            const x = e.clientX / window.innerWidth;
+            const y = e.clientY / window.innerHeight;
+    
+            const newBackground = `radial-gradient(circle at ${x * 100}% ${y * 100}%, #fffb00, #333333, #000000)`;
+            document.body.style.background = newBackground;
+        });
+    
+        // Initialize WebSocket for voice communication
+        // Voice WebSocket URL'sini güncelleyin
+        const voiceSocket = new WebSocket("wss://192.168.5.5:8001/voice_ws");  // 'wss://' kullanın
 
-        ws.onmessage = function (event) {
-            const chatBox = document.getElementById('chat-box');
-            chatBox.innerHTML += `<p>${event.data}</p>`;
-            chatBox.scrollTop = chatBox.scrollHeight;  // En yeni mesajın görünebilmesi için
+        voiceSocket.onopen = function() {
+            console.log("Voice WebSocket bağlantısı başarılı!");
         };
 
-        setInterval(() => ws.send("result"), 1000);
+        voiceSocket.onerror = function(error) {
+            console.error("Voice WebSocket hatası:", error);
+        };
+
+        voiceSocket.onclose = function() {
+            console.log("Voice WebSocket bağlantısı kapandı.");
+        };
+
+        // Get audio elements
+        let audioContext = null;
+        let localStream;
+        let remoteStream;
+        let mediaRecorder;
+    
+        document.getElementById('start-voice').addEventListener('click', async function () {
+            // AudioContext'in başlatılması
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                try {
+                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(localStream);
+                    
+                    mediaRecorder.ondataavailable = function(event) {
+                        if (event.data.size > 0) {
+                            voiceSocket.send(event.data);
+                        }
+                    };
+                    
+                    mediaRecorder.start(250); // Ses verilerini her 250ms'de bir gönder
+    
+                    // Ses verilerini al
+                    voiceSocket.onmessage = function(event) {
+                        const arrayBuffer = event.data;
+                        audioContext.decodeAudioData(arrayBuffer, buffer => {
+                            const source = audioContext.createBufferSource();
+                            source.buffer = buffer;
+                            source.connect(audioContext.destination);
+                            source.start();
+                        }, error => {
+                            console.error("Audio decode hatası:", error);
+                        });
+                    };
+                } catch (error) {
+                    console.error("Ses başlatma hatası:", error);
+                }
+            } else {
+                // AudioContext zaten var, gerektiğinde tekrar başlatabilirsiniz
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+            }
+        });
+    
+        // WebSocket bağlantı hatalarını önlemek için bağlantı durumunu kontrol edin
+        ws.onopen = function() {
+            console.log("WebSocket bağlantısı başarılı!");
+        };
+
+        ws.onerror = function(error) {
+            console.error("WebSocket hatası:", error);
+        };
+
+        ws.onclose = function() {
+            console.log("WebSocket bağlantısı kapandı.");
+        };
+
+        // Doorbell butonu için event listener eklendi
+        document.getElementById('doorbell').addEventListener('click', function () {
+            ws.send(JSON.stringify({ mode: 1 }));
+        });
+
+        // getUserMedia desteğini kontrol edin
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            // ...existing getUserMedia code...
+        } else {
+            console.error("Tarayıcınız getUserMedia API'sini desteklemiyor.");
+        }
     </script>
 </body>
-
 </html>

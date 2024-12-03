@@ -1,179 +1,264 @@
 import logging
+import asyncio
 from datetime import datetime
-from fastapi import FastAPI, WebSocket, Request
+from fastapi import FastAPI, WebSocket, Request, HTTPException, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
+from pydantic import BaseModel
 import cv2
-import pytesseract
 import threading
 import serial
-import asyncio
-import requests
 import os
-import face_recognition
+import glob
+from typing import List
+import random
+import base64
+import json
 
-app = FastAPI()
-templates = Jinja2Templates(directory="templates")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Sabit Değişkenler
+CAMERAS = []
+RESULT_MESSAGE = ""
+CONNECTED_CLIENTS = set()
 
-# Log file settings
+# Kilit Mekanizması
+lock = asyncio.Lock()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    asyncio.create_task(read_from_arduino())
+    start_cameras()
+    # Remove the continuous broadcast task
+    # asyncio.create_task(broadcast_sounds())
+    yield
+    # Shutdown code (if any)
+
+# Create FastAPI app with lifespan
+app = FastAPI(lifespan=lifespan)
+
+templates = Jinja2Templates(directory="/home/jetson/Desktop/H3RU/templates")
+app.mount("/static", StaticFiles(directory="/home/jetson/Desktop/H3RU/static"), name="static")
+
+# Log Dosyası Ayarları
 logging.basicConfig(filename='access_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
-# Start cameras and serial port
-# All Cameras
-cameras = [cv2.VideoCapture(i) for i in range(3)]
-ser = serial.Serial('/dev/ttyUSB0', 115200)  # Arduino's serial port
-result_message = ""
+# Sound directory for doorbell sounds
+SOUNDS_DIR = os.path.join("/home/jetson/Desktop/H3RU/static", "sounds")
 
-user_passwords = {
-    "user1": "1234",
-    "user2": "5678"
-    # Add more users
-}
+# Global list to keep track of active WebSocket connections
+active_connections: List[WebSocket] = []
 
-# Pytesseract configuration
-# Pytesseract config
-pytesseract.pytesseract.tesseract_cmd = '/usr/bin/tesseract'  # Path to Tesseract OCR executable
+# Global list to keep track of active voice WebSocket connections
+voice_connections: List[WebSocket] = []
 
-# Add known faces
-known_face_encodings = []
-known_face_names = []
+# Kullanıcı Şifreleri
+USER_PASSWORDS = {"user1": "1234", "user2": "5678"}
 
-def load_known_faces():
-    known_faces_dir = "known_faces"
-    for filename in os.listdir(known_faces_dir):
-        image_path = os.path.join(known_faces_dir, filename)
-        image = face_recognition.load_image_file(image_path)
-        face_encoding = face_recognition.face_encodings(image)[0]
-        known_face_encodings.append(face_encoding)
-        known_face_names.append(os.path.splitext(filename)[0])
+# Seri Portu Bulma
+def find_arduino_port():
+    ports = glob.glob('/dev/ttyUSB*')
+    if ports:
+        return ports[0]
+    else:
+        raise RuntimeError("Arduino seri portu bulunamadı")
 
-load_known_faces()
+# Arduino Bağlantısı
+try:
+    SER = serial.Serial(find_arduino_port(), 115200, timeout=1)
+except Exception as e:
+    logging.error(f"Arduino bağlantısı başarısız: {e}")
+    SER = None
 
-def gen_frames(cam_index):
-    cam = cameras[cam_index]
-    while True:
-        if not cam.isOpened():
-            cam.open(cam_index)
-        success, frame = cam.read()
-        if not success:
-            break
-        else:
-            ret, buffer = cv2.imencode('.jpg', frame)
-            frame = buffer.tobytes()
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            
-async def garage_control():
-    while True:
-        ret, frame = cameras[0].read()
-        if ret:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            # Perform OCR using Pytesseract
-            text = pytesseract.image_to_string(gray)
-            print("OCR Text:", text)
-            # Check if the target plate number is recognized
-            if "your_target_plate" in text:
-                ser.write(b'OPEN_GARAGE\n')
-                print("Garage opens for plate 'your_target_plate'")
-        await asyncio.sleep(1)
-        
-async def face_recognition_task():
-    while True:
-        ret, frame = cameras[2].read()
-        if ret:
-            hsv_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-            lower_yellow = (20, 100, 100)
-            upper_yellow = (30, 255, 255)
-            mask = cv2.inRange(hsv_frame, lower_yellow, upper_yellow)
-
-            if cv2.countNonZero(mask) == 0:
-                ser.write(b'FACE_RECOGNITION\n')
-
-                rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                face_locations = face_recognition.face_locations(rgb_frame)
-                face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
-
-                for face_encoding in face_encodings:
-                    matches = face_recognition.compare_faces(known_face_encodings, face_encoding)
-                    name = "Unknown"
-
-                    if True in matches:
-                        first_match_index = matches.index(True)
-                        name = known_face_names[first_match_index]
-
-                    ser.write(f"IDENTIFIED:{name}\n".encode('utf-8'))
-
-        await asyncio.sleep(1)
-
+# Arduino Mesaj Okuma
 async def read_from_arduino():
-    global result_message
+    """Arduino'dan veri okur."""
+    global RESULT_MESSAGE
     while True:
-        if ser.in_waiting > 0:
-            line = ser.readline().decode('utf-8').strip()
-            if line.startswith("RESULT:"):
-                result_message = line.split("RESULT:")[1]
-                log_access("User1", result_message)
-                send_to_nodemcu(result_message)
+        if SER and SER.in_waiting > 0:
+            try:
+                line = SER.readline().decode('utf-8').strip()
+                logging.info(f"Arduino Mesajı: {line}")
+                print(f"Arduino Mesajı: {line}")  # Print to FastAPI terminal
+                if line.startswith("RESULT:"):
+                    async with lock:
+                        RESULT_MESSAGE = line.split("RESULT:")[1]
+                    await broadcast_message(f"Jetson: {RESULT_MESSAGE}")
+                if line == "doorbell":
+                    await broadcast_message("doorbell")  # Trigger the doorbell sound
+                    # Remove the random sound broadcast
+                    # await broadcast_random_sound()
+            except Exception as e:
+                logging.error(f"Arduino okuma hatası: {e}")
+                print(f"Arduino okuma hatası: {e}")  # Print error to FastAPI terminal
         await asyncio.sleep(0.1)
 
-def log_access(user, identifier):
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    logging.info(f"User: {user}, Identifier: {identifier}, Time: {current_time}")
+# WebSocket Mesaj Yayını
+async def broadcast_message(message: str):
+    """Tüm WebSocket istemcilerine mesaj gönderir."""
+    for connection in active_connections:
+        await connection.send_text(message)
+    for connection in voice_connections:
+        if message == "doorbell":
+            await connection.send_text("doorbell")
 
-def send_to_nodemcu(message):
-    try:
-        url = "http://nodemcu-ip-address/announce"
-        data = {"message": message}
-        response = requests.post(url, json=data)
-        print("NodeMCU's Answer:", response.text)
-    except Exception as e:
-        print(f"Sending data to NodeMCU failed: {e}")
+async def broadcast_random_sound():
+    sound_files = [f for f in os.listdir(SOUNDS_DIR) if f.endswith(('.wav', '.mp3'))]
+    if sound_files and active_connections:
+        sound_file = random.choice(sound_files)
+        sound_url = f"/static/sounds/{sound_file}"
+        print(f"Broadcasting sound: {sound_url}")
+        disconnected = []
+        for connection in active_connections:
+            try:
+                await connection.send_text(sound_url)
+            except WebSocketDisconnect:
+                disconnected.append(connection)
+        for connection in disconnected:
+            active_connections.remove(connection)
+            print(f"Client disconnected during broadcast: {connection.client}")
+
+# Pydantic Modeli
+class User(BaseModel):
+    user: str
+    password: str
+
+# Kamera Başlatma
+def start_cameras():
+    """Kameraları başlatır."""
+    for i in range(3):  # 3 kamera denemesi yapıyoruz
+        cam = cv2.VideoCapture(i)
+        if cam.isOpened():
+            CAMERAS.append(cam)
+            logging.info(f"Kamera {i} başarıyla açıldı.")
+        else:
+            logging.error(f"Kamera {i} açılamadı.")
+
+# Kamera Akışı
+def gen_frames(cam_index: int):
+    cam = CAMERAS[cam_index]
+    while True:
+        success, frame = cam.read()
+        if not success:
+            logging.error(f"Kamera {cam_index} akışı başarısız.")
+            break
+        _, buffer = cv2.imencode('.jpg', frame)
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+
+# API Rotaları
+@app.post("/open_door")
+async def open_door():
+    if SER:
+        SER.write(b'OPEN_DOOR\n')
+        return {"message": "Kapı açılıyor."}
+    raise HTTPException(status_code=500, detail="Arduino bağlantısı yok")
+
+@app.post("/open_garage")
+async def open_garage():
+    if SER:
+        SER.write(b'OPEN_GARAGE\n')
+        return {"message": "Garaj kapısı açılıyor."}
+    raise HTTPException(status_code=500, detail="Arduino bağlantısı yok")
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def get(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/video_feed/{cam_id}")
 async def video_feed(cam_id: int):
-    if 0 <= cam_id < len(cameras):
+    if 0 <= cam_id < len(CAMERAS):
         return StreamingResponse(gen_frames(cam_id), media_type="multipart/x-mixed-replace; boundary=frame")
-    return "Invalid Camera ID", 404
-
-@app.post("/open_door")
-async def open_door():
-    ser.write(b'OPEN_DOOR\n')
-    return {"message": "Door Opened"}
+    raise HTTPException(status_code=404, detail="Geçersiz Kamera ID")
 
 @app.post("/validate_password")
-async def validate_password(user: str, password: str):
-    if user in user_passwords and user_passwords[user] == password:
-        ser.write(b'VALID_PASSWORD\n')
-        return {"message": "Password Validated"}
-    return {"message": "Invalid Password"}, 401
-
-@app.post("/open_garage")
-async def open_garage():
-    ser.write(b'OPEN_GARAGE\n')
-    return {"message": "Garaj Açıldı"}
+async def validate_password(user: User):
+    if USER_PASSWORDS.get(user.user) == user.password:
+        SER.write(b'VALID_PASSWORD\n')
+        return {"message": "Şifre doğrulandı, kapı açılıyor."}
+    raise HTTPException(status_code=401, detail="Geçersiz Şifre")
 
 @app.get("/result")
 async def result():
-    global result_message
-    return {"result": result_message}
+    async with lock:
+        return {"result": RESULT_MESSAGE}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    while True:
-        data = await websocket.receive_text()
-        if data == "result":
-            await websocket.send_text(result_message)
+    active_connections.append(websocket)
+    print(f"Client connected: {websocket.client}")
+    try:
+        while True:
+            message = await websocket.receive_text()
+            if not message.strip():
+                continue
+            data = json.loads(message)
+            mode = data.get('mode')
 
+            if mode == 1:
+                # Mode 1: Trigger doorbell
+                await broadcast_message("doorbell")
+                # Removed broadcasting random sound
+                # await broadcast_random_sound()
+            elif mode == 2:
+                # Mode 2: Play a specific sound
+                sound_file = data.get('sound_file')
+                if sound_file:
+                    sound_url = f"/static/sounds/{sound_file}"
+                    await broadcast_message(sound_url)
+            elif mode == 3:
+                # Mode 3: Open door
+                if SER:
+                    SER.write(b'OPEN_DOOR\n')
+                    await websocket.send_text("Door is opening.")
+                else:
+                    await websocket.send_text("Arduino connection unavailable.")
+            elif mode == 4:
+                # Mode 4: Open garage
+                if SER:
+                    SER.write(b'OPEN_GARAGE\n')
+                    await websocket.send_text("Garage is opening.")
+                else:
+                    await websocket.send_text("Arduino connection unavailable.")
+            # Add more modes as needed
+            else:
+                # Unknown mode or keep-alive message
+                pass
+    except ValueError:
+        print("Invalid JSON message received.")
+        await websocket.send_text("Invalid message format.")
+    except WebSocketDisconnect:
+        active_connections.remove(websocket)
+        print(f"Client disconnected: {websocket.client}")
+
+@app.websocket("/voice_ws")
+async def voice_websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    voice_connections.append(websocket)
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            # Broadcast the received audio data to all other voice clients
+            for connection in voice_connections:
+                if connection != websocket:
+                    await connection.send_bytes(data)
+    except WebSocketDisconnect:
+        voice_connections.remove(websocket)
+
+# Ana Başlatıcı fonksiyonunu sadeleştirin
+def main():
+    loop = asyncio.get_event_loop()
+    loop.create_task(read_from_arduino())
 if __name__ == "__main__":
-    threading.Thread(target=asyncio.run, args=(garage_control(),)).start()
-    threading.Thread(target=asyncio.run, args=(face_recognition_task(),)).start()
-    threading.Thread(target=asyncio.run, args=(read_from_arduino(),)).start()
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        "app:app",
+        host="0.0.0.0",
+        port=8001,
+        ssl_certfile="cert.pem",
+        ssl_keyfile="key.pem",
+        ws='auto',
+        http='auto'
+    )

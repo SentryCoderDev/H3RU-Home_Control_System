@@ -1,26 +1,40 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
-#include <Servo.h>
+
 
 #define RelayPin 2
+#define DoorbellButtonPin 4  // Kapı zili butonunun bağlı olduğu pin
+#define SLEEP_TIMEOUT 10000  // Ekranın kapanma süresi (milisaniye)
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
-Servo garageServo;
+
 
 const int buttonPins[] = {13, 12, 11, 10, 9, 8, 7, 6, 5};
 const int buttonNumbers[] = {7, 4, 1, 8, 5, 2, 9, 6, 3};
 
-String userPasswords[] = {"1234", "5678"};
-String userNames[] = {"User1", "User2"};
+String userPasswords[] = {"5836", "3636", "1877", "1331", "5665", "7568"};
+String userNames[] = {"Mehmet", "Emir", "Nebihe", "Edhem", "Konuk", "Sülo"};
 
 String enteredPassword = "";
-String lastResult = "";  // To store the face recognition result
+unsigned long lastButtonPressTime = 0;  // Son tuş basım zamanını takip eder
+bool isScreenOn = true;  // Ekranın açık olup olmadığını takip eder
+
+// Add a variable to store the last state of the doorbell button
+int lastDoorbellButtonState = HIGH;
+
+// Fonksiyon bildirimi (function declarations)
+bool isValidPassword(String password);
+String getUserByPassword(String password);
+void openDoor();
+void openGarage();
+void sendResultToJetson(String message);
+void displayGreeting(String user, String identifier);
+void sleepScreen();
+void wakeUpScreen();
 
 void setup() {
     Serial.begin(115200);
-    Serial.println("Serial connection started. Type 'OPEN_DOOR' to test.");
-
     lcd.init();
     lcd.backlight();
     lcd.setCursor(0, 0);
@@ -29,7 +43,9 @@ void setup() {
     lcd.print("  Hosgeldiniz!  ");
     
     pinMode(RelayPin, OUTPUT);
+    pinMode(DoorbellButtonPin, INPUT_PULLUP); 
     digitalWrite(RelayPin, HIGH);
+    
 
     for (int i = 0; i < 9; i++) {
         pinMode(buttonPins[i], INPUT_PULLUP);
@@ -37,25 +53,23 @@ void setup() {
 }
 
 void loop() {
-    if (Serial.available() > 0) {
-        String command = Serial.readStringUntil('\n');
-        command.trim();
-        if (command == "OPEN_DOOR") {
-            openDoor();
-        } else if (command == "VALID_PASSWORD") {
-            openDoor();
-        } else if (command == "OPEN_GARAGE") {
-            openGarage();           
-        } else if (command == "FACE_RECOGNITION") {
-            Serial.println("Facial Recognition Started...");        
-        } else if (command.startsWith("IDENTIFIED:")) {
-            String name = command.substring(11);  // Remove the "IDENTIFIED:" part
-            displayFaceRecognitionGreeting(name);
-        }
+    unsigned long currentMillis = millis();
+
+    // Eğer belirli bir süre boyunca tuşa basılmamışsa ekranı kapat
+    if (isScreenOn && currentMillis - lastButtonPressTime >= SLEEP_TIMEOUT) {
+        sleepScreen();
     }
 
+    // Sayı giriş butonlarıyla ekranı uyandırma ve şifre girişi
+    bool anyButtonPressed = false;
     for (int i = 0; i < 9; i++) {
         if (digitalRead(buttonPins[i]) == LOW) {
+            anyButtonPressed = true;
+            if (!isScreenOn) {
+                wakeUpScreen();
+            }
+
+            lastButtonPressTime = currentMillis;  // Son tuş basma zamanını güncelle
             String key = String(buttonNumbers[i]);
             enteredPassword += key;
             Serial.print("Entered: ");
@@ -65,10 +79,24 @@ void loop() {
             lcd.setCursor(0, 0);
             lcd.print("    HVZ House   ");
             lcd.setCursor((16 - enteredPassword.length()) / 2, 1);
-            lcd.print(enteredPassword);
+            // Şifreyi ekrana yıldız (*) olarak yazdır
+            for (int j = 0; j < enteredPassword.length(); j++) {
+                lcd.print("*");
+            }
 
             if (enteredPassword.length() >= 4) {
-                if (isValidPassword(enteredPassword)) {
+                if (enteredPassword == "2562") {
+                    lcd.clear();
+                    lcd.setCursor(0, 0);
+                    lcd.print("Garaj Aciliyor");
+                    Serial.println("Garaj Açılıyor");
+                    delay(500);
+                    openGarage();
+                    lcd.clear();
+                    lcd.setCursor(0, 0);
+                    lcd.print("  Garaj Acildi  ");
+                    Serial.println("Garaj Açıldı");              
+                } else if (isValidPassword(enteredPassword)) {
                     String user = getUserByPassword(enteredPassword);
                     delay(1000);
                     displayGreeting(user, "Sifre");
@@ -89,6 +117,45 @@ void loop() {
                 enteredPassword = "";
             }
             delay(200);
+        }
+    }
+
+    // Ekran açık kalması gereken sürenin hesaplanması
+    if (anyButtonPressed) {
+        lastButtonPressTime = currentMillis;  // Ekranın kapanma süresini sıfırla
+    }
+
+    // Kapı zili butonuna basıldığında
+    int doorbellButtonState = digitalRead(DoorbellButtonPin);
+
+    if (doorbellButtonState != lastDoorbellButtonState) {
+        if (doorbellButtonState == LOW) {
+            // Button just pressed
+            lastButtonPressTime = currentMillis;
+            if (!isScreenOn) {
+                wakeUpScreen();
+            }
+            Serial.println("doorbell");
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("  Kapi Zili!   ");
+            delay(2000);
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("    HVZ House   ");
+        }
+        // Save the current state for next time
+        lastDoorbellButtonState = doorbellButtonState;
+    }
+
+    // Seri port üzerinden komut kontrolü
+    if (Serial.available() > 0) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();
+        if (command == "OPEN_DOOR") {
+            openDoor();
+        } else if (command == "OPEN_GARAGE") {
+            openGarage();             
         }
     }
 }
@@ -112,24 +179,35 @@ String getUserByPassword(String password) {
 }
 
 void openDoor() {
-    Serial.println("openDoor() called");
+    Serial.println("openDoor() tetiklendi");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  role1 Acildi  ");
     digitalWrite(RelayPin, LOW);
-    delay(5000);
+    delay(2000);
     digitalWrite(RelayPin, HIGH);
-    Serial.println("DOOR OPENED");
+    Serial.println("röle1 Açıldı");
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  role1 Kapandi ");
+    
 }
 
 void openGarage() {
-    Serial.println("openGarage() called");
-    garageServo.attach(4);  //Connect (activate) the servo
-    garageServo.write(180);  
-    Serial.println("GARAGE OPENED");
-    delay(1000);             
-    garageServo.write(30);   
-    Serial.println("Servo Up");
-    delay(500);              
-    garageServo.detach();    // Disable servo
+    Serial.println("openGarage() tetiklendi");
+    
+    // roleyi aktif edip servo motoruna güç ver
 
+    delay(1000);  // Güç vermek için kısa bir gecikme
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  role2 Acildi  ");
+    delay(1000);
+    Serial.println("röle2 Açıldı");
+    delay(2000);  // 1 saniye bekle
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  röle2 Kapandı ");
 }
 
 void sendResultToJetson(String message) {
@@ -139,7 +217,7 @@ void sendResultToJetson(String message) {
 
 void displayGreeting(String user, String identifier) {
     lcd.clear();
-    lcd.setCursor((16 - (8 + user.length())) / 2, 0); // 'Merhaba' is 8 characters long.
+    lcd.setCursor((16 - (8 + user.length())) / 2, 0); // 'Merhaba ' 8 karakter uzunluğundadır.
     lcd.print("Merhaba ");
     lcd.print(user);
     
@@ -155,21 +233,17 @@ void displayGreeting(String user, String identifier) {
     lcd.print("  Hosgeldiniz!  ");
 }
 
-void displayFaceRecognitionGreeting(String name) {
+void sleepScreen() {
+    lcd.noBacklight();
     lcd.clear();
-    lcd.setCursor((16 - (8 + name.length())) / 2, 0); // 'Merhaba' is 8 characters long.
-    lcd.print("Merhaba ");
-    lcd.print(name);
+    isScreenOn = false;
+}
 
-    lcd.setCursor((16 - 22) / 2, 0); //to center the phrase "the homeowner has been informed"
-    lcd.print("H3RUM0'e bilgi");
-    lcd.setCursor((16 - 22) / 2, 1); // Ekranda ikinci satır
-    lcd.print("verildi");
-    
-    delay(2000);
-    lcd.clear();
+void wakeUpScreen() {
+    lcd.backlight();
     lcd.setCursor(0, 0);
     lcd.print("    HVZ House   ");
     lcd.setCursor(0, 1);
     lcd.print("  Hosgeldiniz!  ");
+    isScreenOn = true;
 }
