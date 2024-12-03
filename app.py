@@ -42,7 +42,7 @@ templates = Jinja2Templates(directory="/home/jetson/Desktop/H3RU/templates")
 app.mount("/static", StaticFiles(directory="/home/jetson/Desktop/H3RU/static"), name="static")
 
 # Log Dosyası Ayarları
-logging.basicConfig(filename='access_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
+logging.basicConfig(filename='/home/jetson/Desktop/H3RU/access_log.txt', level=logging.INFO, format='%(asctime)s - %(message)s')
 
 # Sound directory for doorbell sounds
 SOUNDS_DIR = os.path.join("/home/jetson/Desktop/H3RU/static", "sounds")
@@ -251,14 +251,15 @@ async def voice_websocket_endpoint(websocket: WebSocket):
 def main():
     loop = asyncio.get_event_loop()
     loop.create_task(read_from_arduino())
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
         port=8001,
-        ssl_certfile="cert.pem",
-        ssl_keyfile="key.pem",
+        ssl_certfile="/home/jetson/Desktop/H3RU/cert.pem",  # Update with the correct path
+        ssl_keyfile="/home/jetson/Desktop/H3RU/key.pem",    # Update with the correct path
         ws='auto',
         http='auto'
     )
