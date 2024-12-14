@@ -191,41 +191,45 @@ async def websocket_endpoint(websocket: WebSocket):
     print(f"Client connected: {websocket.client}")
     try:
         while True:
-            message = await websocket.receive_text()
-            if not message.strip():
-                continue
-            data = json.loads(message)
-            mode = data.get('mode')
+            try:
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=30)
+                if not message.strip():
+                    continue
+                data = json.loads(message)
+                mode = data.get('mode')
 
-            if mode == 1:
-                # Mode 1: Trigger doorbell
-                await broadcast_message("doorbell")
-                # Removed broadcasting random sound
-                # await broadcast_random_sound()
-            elif mode == 2:
-                # Mode 2: Play a specific sound
-                sound_file = data.get('sound_file')
-                if sound_file:
-                    sound_url = f"/static/sounds/{sound_file}"
-                    await broadcast_message(sound_url)
-            elif mode == 3:
-                # Mode 3: Open door
-                if SER:
-                    SER.write(b'OPEN_DOOR\n')
-                    await websocket.send_text("Door is opening.")
+                if mode == 1:
+                    # Mode 1: Trigger doorbell
+                    await broadcast_message("doorbell")
+                    # Removed broadcasting random sound
+                    # await broadcast_random_sound()
+                elif mode == 2:
+                    # Mode 2: Play a specific sound
+                    sound_file = data.get('sound_file')
+                    if sound_file:
+                        sound_url = f"/static/sounds/{sound_file}"
+                        await broadcast_message(sound_url)
+                elif mode == 3:
+                    # Mode 3: Open door
+                    if SER:
+                        SER.write(b'OPEN_DOOR\n')
+                        await websocket.send_text("Door is opening.")
+                    else:
+                        await websocket.send_text("Arduino connection unavailable.")
+                elif mode == 4:
+                    # Mode 4: Open garage
+                    if SER:
+                        SER.write(b'OPEN_GARAGE\n')
+                        await websocket.send_text("Garage is opening.")
+                    else:
+                        await websocket.send_text("Arduino connection unavailable.")
+                # Add more modes as needed
                 else:
-                    await websocket.send_text("Arduino connection unavailable.")
-            elif mode == 4:
-                # Mode 4: Open garage
-                if SER:
-                    SER.write(b'OPEN_GARAGE\n')
-                    await websocket.send_text("Garage is opening.")
-                else:
-                    await websocket.send_text("Arduino connection unavailable.")
-            # Add more modes as needed
-            else:
-                # Unknown mode or keep-alive message
-                pass
+                    # Unknown mode or keep-alive message
+                    pass
+            except asyncio.TimeoutError:
+                # Send a ping to keep the connection alive
+                await websocket.send_text(json.dumps({"action": "ping"}))
     except ValueError:
         print("Invalid JSON message received.")
         await websocket.send_text("Invalid message format.")
